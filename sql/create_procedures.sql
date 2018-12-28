@@ -24,6 +24,7 @@ BEGIN
     VALUES(conf_id, price, limit, day_date);
 END;
 
+
 CREATE PROCEDURE ADD_WORKSHOPS(
   conf_day_id IN WORKSHOPS.CONF_DAY_ID%TYPE,
   start_time IN WORKSHOPS.START_TIME%TYPE,
@@ -35,3 +36,16 @@ BEGIN
   INSERT INTO WORKSHOPS(CONF_DAY_ID, START_TIME, END_TIME, PRICE, LIMIT)
     VALUES(conf_day_id, start_time, end_time, price, limit);
 END;
+
+
+CREATE PROCEDURE ADD_PRICE(
+  conf_id IN PRICES.CONFERENCE_ID%TYPE,
+  discount IN PRICES.DISCOUNT%TYPE,
+  end_date IN PRICES.END_DATE%TYPE
+) AS
+BEGIN
+  INSERT INTO PRICES(CONFERENCE_ID, DISCOUNT, END_DATE)
+    VALUES(conf_id, discount, end_date);
+END;
+
+-- CREATE PACKAGE ...? AS ...!
