@@ -18,8 +18,7 @@ with SSHTunnelForwarder((conf.tunnel_host, conf.tunnel_port),
         try:
             cursor.execute('INSERT INTO ATTENDEES (FIRST_NAME, LAST_NAME, EMAIL) ' + 
                 "VALUES ('John', 'Doe', 'johnny@buziaczek.com')")
-            db.commit()
-            
+            db.commit()            
             cursor.execute('SELECT * FROM ATTENDEES')
             pprint(cursor.fetchall())
         except cx_Oracle.DatabaseError as e:
