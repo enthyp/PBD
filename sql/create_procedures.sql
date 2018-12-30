@@ -1,132 +1,333 @@
+/* PROCEDURES */
+
 CREATE PROCEDURE ADD_CONFERENCE(
-  conf_name IN CONFERENCES.CONFERENCE_NAME%TYPE,
-  country IN CONFERENCES.COUNTRY%TYPE,
-  city IN CONFERENCES.CITY%TYPE,
-  address IN CONFERENCES.ADDRESS%TYPE,
-  first_day IN CONFERENCES.FIRST_DAY%TYPE,
-  last_day IN CONFERENCES.LAST_DAY%TYPE,
-  student_discount IN CONFERENCES.STUDENT_DISCOUNT%TYPE DEFAULT 0
+  i_conf_name IN CONFERENCES.CONFERENCE_NAME%TYPE,
+  i_country IN CONFERENCES.COUNTRY%TYPE,
+  i_city IN CONFERENCES.CITY%TYPE,
+  i_address IN CONFERENCES.ADDRESS%TYPE,
+  i_first_day IN CONFERENCES.FIRST_DAY%TYPE,
+  i_last_day IN CONFERENCES.LAST_DAY%TYPE,
+  i_student_discount IN CONFERENCES.STUDENT_DISCOUNT%TYPE DEFAULT 0
 ) AS
 BEGIN
   INSERT INTO CONFERENCES(CONFERENCE_NAME, COUNTRY, CITY, ADDRESS, FIRST_DAY, LAST_DAY, STUDENT_DISCOUNT)
-    VALUES(conf_name, country, city, address, first_day, last_day, student_discount);
+    VALUES(i_conf_name, i_country, i_city, i_address, i_first_day, i_last_day, i_student_discount);
 END;
 
 
 CREATE PROCEDURE ADD_CONFERENCE_DAY(
-  conf_id IN CONFERENCE_DAYS.CONFERENCE_ID%TYPE,
-  price IN CONFERENCE_DAYS.PRICE%TYPE,
-  limit IN CONFERENCE_DAYS.LIMIT%TYPE,
-  day_date IN CONFERENCE_DAYS.DAY_DATE%TYPE
+  i_conf_id IN CONFERENCE_DAYS.CONFERENCE_ID%TYPE,
+  i_price IN CONFERENCE_DAYS.PRICE%TYPE,
+  i_limit IN CONFERENCE_DAYS.LIMIT%TYPE,
+  i_day_date IN CONFERENCE_DAYS.DAY_DATE%TYPE
 ) AS
 BEGIN
   INSERT INTO CONFERENCE_DAYS(CONFERENCE_ID, PRICE, LIMIT, DAY_DATE)
-    VALUES(conf_id, price, limit, day_date);
+    VALUES(i_conf_id, i_price, i_limit, i_day_date);
 END;
 
 
 CREATE PROCEDURE ADD_WORKSHOPS(
-  conf_day_id IN WORKSHOPS.CONF_DAY_ID%TYPE,
-  workshop_name IN WORKSHOPS.WORKSHOP_NAME%TYPE,
-  start_time IN WORKSHOPS.START_TIME%TYPE,
-  end_time IN WORKSHOPS.END_TIME%TYPE,
-  price IN WORKSHOPS.PRICE%TYPE,
-  limit IN WORKSHOPS.LIMIT%TYPE
+  i_conf_day_id IN WORKSHOPS.CONF_DAY_ID%TYPE,
+  i_workshop_name IN WORKSHOPS.WORKSHOP_NAME%TYPE,
+  i_start_time IN WORKSHOPS.START_TIME%TYPE,
+  i_end_time IN WORKSHOPS.END_TIME%TYPE,
+  i_price IN WORKSHOPS.PRICE%TYPE,
+  i_limit IN WORKSHOPS.LIMIT%TYPE
 ) AS
 BEGIN
   INSERT INTO WORKSHOPS(CONF_DAY_ID, WORKSHOP_NAME, START_TIME, END_TIME, PRICE, LIMIT)
-    VALUES(conf_day_id, workshop_name, start_time, end_time, price, limit);
+    VALUES(i_conf_day_id, i_workshop_name, i_start_time, i_end_time, i_price, i_limit);
 END;
 
 
 CREATE PROCEDURE ADD_PRICE(
-  conf_id IN PRICES.CONFERENCE_ID%TYPE,
-  discount IN PRICES.DISCOUNT%TYPE,
-  end_date IN PRICES.END_DATE%TYPE
+  i_conf_id IN PRICES.CONFERENCE_ID%TYPE,
+  i_discount IN PRICES.DISCOUNT%TYPE,
+  i_end_date IN PRICES.END_DATE%TYPE
 ) AS
 BEGIN
   INSERT INTO PRICES(CONFERENCE_ID, DISCOUNT, END_DATE)
-    VALUES(conf_id, discount, end_date);
+    VALUES(i_conf_id, i_discount, i_end_date);
 END;
 
 
 CREATE PROCEDURE ADD_CLIENT(
-  is_company IN CLIENTS.IS_COMPANY%TYPE DEFAULT 'N',
-  client_name IN CLIENTS.CLIENT_NAME%TYPE,
-  country IN CLIENTS.COUNTRY%TYPE DEFAULT NULL,
-  city IN CLIENTS.CITY%TYPE DEFAULT NULL,
-  address IN CLIENTS.ADDRESS%TYPE DEFAULT NULL,
-  phone IN CLIENTS.PHONE%TYPE DEFAULT NULL,
-  email IN CLIENTS.EMAIL%TYPE,
-  password IN CLIENTS.PASSWORD%TYPE
+  i_is_company IN CLIENTS.IS_COMPANY%TYPE DEFAULT 'N',
+  i_client_name IN CLIENTS.CLIENT_NAME%TYPE,
+  i_country IN CLIENTS.COUNTRY%TYPE DEFAULT NULL,
+  i_city IN CLIENTS.CITY%TYPE DEFAULT NULL,
+  i_address IN CLIENTS.ADDRESS%TYPE DEFAULT NULL,
+  i_phone IN CLIENTS.PHONE%TYPE DEFAULT NULL,
+  i_email IN CLIENTS.EMAIL%TYPE,
+  i_password IN CLIENTS.PASSWORD%TYPE
 ) AS
 BEGIN
   INSERT INTO CLIENTS(IS_COMPANY, CLIENT_NAME, COUNTRY, CITY, ADDRESS, PHONE, EMAIL, PASSWORD)
-    VALUES(is_company, client_name, country, city, address, phone, email, password);
+    VALUES(i_is_company, i_client_name, i_country, i_city, i_address, i_phone, i_email, i_password);
 END;
 
 
 CREATE PROCEDURE ADD_PAYMENT(
-  booking_id IN PAYMENTS.BOOKING_ID%TYPE,
-  payment_date IN PAYMENTS.PAYMENT_DATE%TYPE,
-  value IN PAYMENTS.VALUE%TYPE,
-  means IN PAYMENTS.MEANS%TYPE
+  i_booking_id IN PAYMENTS.BOOKING_ID%TYPE,
+  i_payment_date IN PAYMENTS.PAYMENT_DATE%TYPE,
+  i_value IN PAYMENTS.VALUE%TYPE,
+  i_means IN PAYMENTS.MEANS%TYPE
 ) AS
 BEGIN
   INSERT INTO PAYMENTS(BOOKING_ID, PAYMENT_DATE, VALUE, MEANS)
-    VALUES(booking_id, payment_date, value, means);
+    VALUES(i_booking_id, i_payment_date, i_value, i_means);
 END;
+
+
+CREATE PROCEDURE UPDATE_CONFERENCE(
+  i_conf_id IN CONFERENCES.CONFERENCE_ID%TYPE,
+  i_conference_name IN CONFERENCES.CONFERENCE_NAME%TYPE DEFAULT NULL,
+  i_country IN CONFERENCES.COUNTRY%TYPE DEFAULT NULL,
+  i_city IN CONFERENCES.CITY%TYPE DEFAULT NULL,
+  i_address IN CONFERENCES.ADDRESS%TYPE DEFAULT NULL,
+  i_student_discount IN CONFERENCES.STUDENT_DISCOUNT%TYPE DEFAULT NULL
+) AS
+  l_conf_count INTEGER;
+BEGIN
+  -- TODO: Is this necessary? Or just fail silently on wrong conference ID?
+  BEGIN
+    SELECT COUNT(*) INTO l_conf_count
+    FROM CONFERENCES
+    WHERE CONFERENCE_ID = i_conf_id;
+  END;
+
+  IF (l_conf_count = 0) THEN
+    RAISE_APPLICATION_ERROR(-20400, 'Wrong conference_id!');
+  ELSE
+    UPDATE CONFERENCES
+      SET CONFERENCE_NAME = NVL(i_conference_name, CONFERENCE_NAME),
+          COUNTRY = NVL(i_country, COUNTRY),
+          CITY = NVL(i_city, CITY),
+          ADDRESS = NVL(i_address, ADDRESS),
+          STUDENT_DISCOUNT = NVL(i_student_discount, STUDENT_DISCOUNT)
+    WHERE CONFERENCE_ID = i_conf_id;
+  END IF;
+END;
+
+
+CREATE PROCEDURE UPDATE_CONF_DAY(
+  i_conf_day_id IN CONFERENCE_DAYS.CONF_DAY_ID%TYPE,
+  i_price IN CONFERENCE_DAYS.PRICE%TYPE DEFAULT NULL,
+  i_limit IN CONFERENCE_DAYS.LIMIT%TYPE DEFAULT NULL
+) AS
+  l_conf_day_count INTEGER;
+BEGIN
+  BEGIN
+    SELECT COUNT(*) INTO l_conf_day_count
+    FROM CONFERENCE_DAYS
+    WHERE CONFERENCE_ID = i_conf_day_id;
+  END;
+
+  IF (l_conf_day_count = 0) THEN
+    RAISE_APPLICATION_ERROR(-20401, 'Wrong conf_day_id!');
+  ELSE
+    UPDATE CONFERENCE_DAYS
+      SET PRICE = NVL(i_price, PRICE),
+          LIMIT = NVL(i_limit, LIMIT)
+    WHERE CONF_DAY_ID = i_conf_day_id;
+  END IF;
+END;
+
+
+CREATE PROCEDURE UPDATE_WORKSHOPS(
+  i_workshop_id IN WORKSHOPS.WORKSHOP_ID%TYPE,
+  i_workshop_name IN WORKSHOPS.WORKSHOP_NAME%TYPE DEFAULT NULL,
+  i_price IN WORKSHOPS.PRICE%TYPE DEFAULT NULL,
+  i_limit IN WORKSHOPS.LIMIT%TYPE DEFAULT NULL
+) AS
+  l_workshop_count INTEGER;
+BEGIN
+  BEGIN
+    SELECT COUNT(*) INTO l_workshop_count
+    FROM WORKSHOPS
+    WHERE WORKSHOP_ID = i_workshop_id;
+  END;
+
+  IF (l_workshop_count = 0) THEN
+    RAISE_APPLICATION_ERROR(-20402, 'Wrong workshop_id!');
+  ELSE
+    UPDATE WORKSHOPS
+      SET WORKSHOP_NAME = NVL(i_workshop_name, WORKSHOP_NAME),
+          PRICE = NVL(i_price, PRICE),
+          LIMIT = NVL(i_limit, LIMIT)
+      WHERE WORKSHOP_ID = i_workshop_id;
+  END IF;
+END;
+
+
+CREATE PROCEDURE DELETE_CONFERENCE(
+  i_conf_id IN CONFERENCES.CONFERENCE_ID%TYPE
+) AS
+  l_conf_count INTEGER;
+BEGIN
+  BEGIN
+    SELECT COUNT(*) INTO l_conf_count
+    FROM CONFERENCES
+    WHERE CONFERENCE_ID = i_conf_id;
+  END;
+
+  IF (l_conf_count = 0) THEN
+    RAISE_APPLICATION_ERROR(-20403, 'Wrong conf_id!');
+  ELSE
+    DELETE FROM CONFERENCES
+    WHERE CONFERENCE_ID = i_conf_id;
+  END IF;
+END;
+
+CREATE PROCEDURE DELETE_CONF_DAY(
+  i_conf_day_id IN CONFERENCE_DAYS.CONF_DAY_ID%TYPE
+) AS
+  l_conf_day_count INTEGER;
+BEGIN
+  BEGIN
+    SELECT COUNT(*) INTO l_conf_day_count
+    FROM CONFERENCE_DAYS
+    WHERE CONF_DAY_ID = i_conf_day_id;
+  END;
+
+  IF (l_conf_day_count = 0) THEN
+    RAISE_APPLICATION_ERROR(-20404, 'Wrong conf_day_id!');
+  ELSE
+    DELETE FROM CONFERENCE_DAYS
+    WHERE CONF_DAY_ID = i_conf_day_id;
+  END IF;
+END;
+
+
+CREATE PROCEDURE DELETE_WORKSHOP(
+  i_workshop_id IN WORKSHOPS.WORKSHOP_ID%TYPE
+) AS
+  l_workshop_count INTEGER;
+BEGIN
+  BEGIN
+    SELECT COUNT(*) INTO l_workshop_count
+    FROM WORKSHOPS
+    WHERE WORKSHOP_ID = i_workshop_id;
+  END;
+
+  IF (l_workshop_count = 0) THEN
+    RAISE_APPLICATION_ERROR(-20405, 'Wrong workshop_id!');
+  ELSE
+    DELETE FROM WORKSHOPS
+    WHERE WORKSHOP_ID = i_workshop_id;
+  END IF;
+END;
+
+
+
+/* FUNCTIONS */
+
 
 
 CREATE FUNCTION AVAILABLE_CONF_DAY_PLACES_COUNT(
-  conf_day_id IN CONFERENCE_DAYS.CONF_DAY_ID%TYPE
+  i_conf_day_id IN CONFERENCE_DAYS.CONF_DAY_ID%TYPE
 ) RETURN INTEGER AS
-  taken INTEGER := 0;
-  total CONFERENCE_DAYS.LIMIT%TYPE;
+  l_taken INTEGER := 0;
+  l_total CONFERENCE_DAYS.LIMIT%TYPE;
 BEGIN
   BEGIN
-    SELECT LIMIT INTO total
+    SELECT LIMIT INTO l_total
     FROM CONFERENCE_DAYS
-    WHERE CONF_DAY_ID = conf_day_id;
+    WHERE CONF_DAY_ID = i_conf_day_id;
   EXCEPTION
     WHEN NO_DATA_FOUND THEN
-      RAISE_APPLICATION_ERROR(-20500, 'Incorrect CONF_DAY_ID provided!');
+      RAISE_APPLICATION_ERROR(-20500, 'Incorrect conf_day_id provided!');
   END;
 
   BEGIN
-    SELECT SUM(NUMBER_OF_ATTENDEES) INTO taken
+    SELECT SUM(NUMBER_OF_ATTENDEES) INTO l_taken
     FROM CONF_DAY_BOOKINGS
-    WHERE CONF_DAY_ID = conf_day_id;
+    WHERE CONF_DAY_ID = i_conf_day_id;
   END;
 
-  total := total - taken;
-  RETURN total;
+  l_total := l_total - l_taken;
+  RETURN l_total;
 END;
 
+
 CREATE FUNCTION AVAILABLE_WORKSHOP_PLACES_COUNT(
-  workshop_id IN WORKSHOPS.WORKSHOP_ID%TYPE
+  i_workshop_id IN WORKSHOPS.WORKSHOP_ID%TYPE
 ) RETURN INTEGER AS
-  taken INTEGER := 0;
-  total WORKSHOPS.LIMIT%TYPE;
+  l_taken INTEGER := 0;
+  l_total WORKSHOPS.LIMIT%TYPE;
 BEGIN
   BEGIN
-    SELECT LIMIT INTO total
+    SELECT LIMIT INTO l_total
     FROM WORKSHOPS
-    WHERE WORKSHOP_ID = workshop_id;
+    WHERE WORKSHOP_ID = i_workshop_id;
   EXCEPTION
     WHEN NO_DATA_FOUND THEN
-      RAISE_APPLICATION_ERROR(-20501, 'Incorrect WORKSHOP_ID provided!');
+      RAISE_APPLICATION_ERROR(-20501, 'Incorrect workshop_id provided!');
   END;
 
   BEGIN
-    SELECT SUM(NUMBER_OF_ATTENDEES) INTO taken
+    SELECT SUM(NUMBER_OF_ATTENDEES) INTO l_taken
     FROM WORKSHOP_BOOKINGS
-    WHERE WORKSHOP_ID = workshop_id;
+    WHERE WORKSHOP_ID = i_workshop_id;
   END;
 
-  total := total - taken;
-  RETURN total;
+  l_total := l_total - l_taken;
+  RETURN l_total;
+END;
+
+
+CREATE FUNCTION WORKSHOPS_OVERLAP(
+  i_workshop_id1 IN WORKSHOPS.WORKSHOP_ID%TYPE,
+  i_workshop_id2 IN WORKSHOPS.WORKSHOP_ID%TYPE
+) RETURN BOOLEAN AS
+  l_start1 WORKSHOPS.START_TIME%TYPE;
+  l_end1 WORKSHOPS.END_TIME%TYPE;
+  l_start2 WORKSHOPS.START_TIME%TYPE;
+  l_end2 WORKSHOPS.END_TIME%TYPE;
+BEGIN
+  BEGIN
+    SELECT START_TIME, END_TIME INTO l_start1, l_end1
+    FROM WORKSHOPS
+    WHERE WORKSHOP_ID = i_workshop_id1;
+    SELECT START_TIME, END_TIME INTO l_start2, l_end2
+    FROM WORKSHOPS
+    WHERE WORKSHOP_ID = i_workshop_id2;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20502, 'Incorrect workshop_id provided!');
+  END;
+
+  IF (l_end1 <= l_start2 OR l_end2 <= l_start1) THEN
+    RETURN FALSE;
+  ELSE
+    RETURN TRUE;
+  END IF;
+END;
+
+
+CREATE FUNCTION CAN_DELETE_CONF_DAY(
+  i_conf_day_id IN CONFERENCE_DAYS.CONF_DAY_ID%TYPE
+) RETURN BOOLEAN AS
+  l_total CONFERENCE_DAYS.LIMIT%TYPE;
+  l_available INTEGER := AVAILABLE_CONF_DAY_PLACES_COUNT(i_conf_day_id);
+BEGIN
+  BEGIN
+    SELECT LIMIT INTO l_total
+    FROM CONFERENCE_DAYS
+    WHERE CONF_DAY_ID = i_conf_day_id;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20503, 'Wrong conf_day_id provided!');
+  END;
+
+  IF (l_available < l_total) THEN
+    RETURN FALSE;
+  ELSE
+    RETURN TRUE;
+  END IF;
 END;
 
 
 -- CREATE PACKAGE ...? AS ...!
+-- TODO: PROCEDURE_NAME_P??
