@@ -103,7 +103,7 @@ BEGIN
     UPDATE CONFERENCE_DAYS
       SET PRICE = NVL(i_price, PRICE),
           LIMIT = NVL(i_limit, LIMIT)
-    WHERE CONFERENCE_DAYS.CONF_DAY_ID = i_conf_day_id;
+      WHERE CONFERENCE_DAYS.CONF_DAY_ID = i_conf_day_id;
   END IF;
 END;
 
@@ -166,7 +166,7 @@ BEGIN
 END;
 
 
-CREATE PROCEDURE DELETE_PRICE(
+CREATE OR REPLACE PROCEDURE DELETE_PRICE(
   i_price_id IN PRICES.PRICE_ID%TYPE
 ) AS
   l_price_count INTEGER;
@@ -347,13 +347,7 @@ BEGIN
     RAISE_APPLICATION_ERROR(-20409, 'Cannot add participants to cancelled conference day booking!');
   ELSE
     -- Get number of already signed up participants (students/non-students).
-    BEGIN
-      SELECT COUNT(*) INTO l_conf_day_participants_count
-      FROM PARTICIPATION_CONF_DAYS PCD
-      WHERE PCD.BOOKING_ID = i_booking_id
-            AND PCD.CONF_DAY_ID = i_conf_day_id
-            AND PCD.IS_STUDENT = i_is_student;
-    END;
+    l_conf_day_participants_count := CONF_DAY_PARTICIPANTS_COUNT(i_conf_day_id, i_booking_id, i_is_student);
 
     -- Get booked number of participants.
     BEGIN
@@ -442,14 +436,7 @@ BEGIN
   IF (l_booking_cancelled = 'Y') THEN
     RAISE_APPLICATION_ERROR(-20410, 'Cannot add participants to cancelled workshop booking!');
   ELSE
-    BEGIN
-      SELECT COUNT(*) INTO l_workshop_participants_count
-      FROM PARTICIPATION_WORKSHOPS PW
-        JOIN PARTICIPATION_CONF_DAYS PCD ON PW.PARTICIPATION_CONF_DAY_ID = PCD.PARTICIPATION_CONF_DAY_ID
-      WHERE PW.WORKSHOP_ID = i_workshop_id
-            AND PCD.BOOKING_ID = l_booking_id
-            AND PCD.IS_STUDENT = l_is_student;
-    END;
+    l_workshop_participants_count := WORKSHOP_PARTICIPANTS_COUNT(i_workshop_id, l_booking_id, l_is_student);
 
     IF (l_booked_workshop_places_count <= l_workshop_participants_count) THEN
       RAISE_APPLICATION_ERROR(-20410, 'All places booked for this workshop already have ' ||
@@ -497,6 +484,107 @@ BEGIN
 END;
 
 
+CREATE OR REPLACE PROCEDURE CANCEL_WORKSHOP_BOOKING(
+  i_workshop_booking_id IN WORKSHOP_BOOKINGS.WORKSHOP_BOOKING_ID%TYPE
+) AS
+BEGIN
+  BEGIN
+    UPDATE WORKSHOP_BOOKINGS
+      SET IS_CANCELLED = 'Y'
+      WHERE WORKSHOP_BOOKINGS.WORKSHOP_BOOKING_ID = i_workshop_booking_id;
+  END;
+
+  BEGIN
+    DELETE FROM PARTICIPATION_WORKSHOPS
+    WHERE PARTICIPATION_WORKSHOP_ID IN
+          (SELECT PW.PARTICIPATION_WORKSHOP_ID
+           FROM WORKSHOP_BOOKINGS WB
+             JOIN CONF_DAY_BOOKINGS CDB ON WB.CONF_DAY_BOOKING_ID = CDB.CONF_DAY_BOOKING_ID
+             JOIN PARTICIPATION_CONF_DAYS PCD ON CDB.BOOKING_ID = PCD.BOOKING_ID
+             JOIN PARTICIPATION_WORKSHOPS PW ON PCD.PARTICIPATION_CONF_DAY_ID = PW.PARTICIPATION_CONF_DAY_ID
+           WHERE WB.WORKSHOP_BOOKING_ID = i_workshop_booking_id
+                 AND PW.WORKSHOP_ID = WB.WORKSHOP_ID);
+  END;
+END;
+
+
+CREATE OR REPLACE PROCEDURE CANCEL_CONF_DAY_BOOKING(
+  i_conf_day_booking_id IN CONF_DAY_BOOKINGS.CONF_DAY_BOOKING_ID%TYPE
+) AS
+BEGIN
+  -- Cancel all corresponding workshop bookings first.
+  DECLARE
+    CURSOR c_workshop_bookings_cursor IS (SELECT WB.WORKSHOP_BOOKING_ID
+                                          FROM WORKSHOP_BOOKINGS WB
+                                          WHERE WB.CONF_DAY_BOOKING_ID = i_conf_day_booking_id);
+    l_workshop_booking_id WORKSHOP_BOOKINGS.WORKSHOP_BOOKING_ID%TYPE;
+  BEGIN
+    OPEN c_workshop_bookings_cursor;
+    LOOP
+      FETCH c_workshop_bookings_cursor INTO l_workshop_booking_id;
+      EXIT WHEN c_workshop_bookings_cursor%NOTFOUND;
+      CANCEL_WORKSHOP_BOOKING(l_workshop_booking_id);
+    END LOOP;
+    CLOSE c_workshop_bookings_cursor;
+  END;
+
+  -- Cancel conference day booking itself.
+  BEGIN
+    UPDATE CONF_DAY_BOOKINGS
+      SET IS_CANCELLED = 'Y'
+      WHERE CONF_DAY_BOOKINGS.CONF_DAY_BOOKING_ID = i_conf_day_booking_id;
+  END;
+
+  DELETE FROM PARTICIPATION_CONF_DAYS PCD
+  WHERE PCD.PARTICIPATION_CONF_DAY_ID IN
+        (SELECT PCD2.PARTICIPATION_CONF_DAY_ID
+         FROM CONF_DAY_BOOKINGS CDB
+           JOIN PARTICIPATION_CONF_DAYS PCD2
+             ON PCD2.BOOKING_ID = CDB.BOOKING_ID
+                AND PCD2.CONF_DAY_ID = CDB.CONF_DAY_ID
+         WHERE CDB.CONF_DAY_BOOKING_ID = i_conf_day_booking_id);
+END;
+
+
+CREATE OR REPLACE PROCEDURE CANCEL_BOOKING(
+  i_booking_id IN BOOKINGS.BOOKING_ID%TYPE
+) AS
+  CURSOR c_conf_days_cursor IS (SELECT CONF_DAY_BOOKING_ID
+                                FROM CONF_DAY_BOOKINGS CDB
+                                WHERE CDB.BOOKING_ID = i_booking_id);
+  l_conf_day_booking_id CONF_DAY_BOOKINGS.CONF_DAY_BOOKING_ID%TYPE;
+BEGIN
+  -- Cancel all corresponding conference day bookings first.
+  OPEN c_conf_days_cursor;
+  LOOP
+    FETCH c_conf_days_cursor INTO l_conf_day_booking_id;
+    EXIT WHEN c_conf_days_cursor%NOTFOUND;
+    CANCEL_CONF_DAY_BOOKING(l_conf_day_booking_id);
+  END LOOP;
+  CLOSE c_conf_days_cursor;
+
+  -- Cancel the whole booking.
+  UPDATE BOOKINGS
+    SET IS_CANCELLED = 'Y'
+    WHERE BOOKINGS.BOOKING_ID = i_booking_id;
+END;
+
+
+CREATE OR REPLACE PROCEDURE CHANGE_CONF_DAY_BOOKING_PLACES(
+  i_conf_day_booking_id IN CONF_DAY_BOOKINGS.CONF_DAY_BOOKING_ID%TYPE,
+  i_num_attendees IN CONF_DAY_BOOKINGS.NUMBER_OF_ATTENDEES%TYPE,
+  i_num_students IN CONF_DAY_BOOKINGS.NUMBER_OF_STUDENTS%TYPE
+) AS
+BEGIN
+  /*
+   * -> Gotta check if there is enough free places on the day to add more.
+   * -> Gotta check if there is enough unassigned places to shrink.
+   * -> Gotta check if workshop places count remains valid.
+   * Mmm.. Add a trigger to handle workshop booking places vs conference day booking places??
+   * Well, no idea. I guess we might wanna have complex logic in one place, not two.
+   */
+
+END;
 
 
 /*
@@ -714,8 +802,90 @@ BEGIN
 END;
 
 
+CREATE OR REPLACE FUNCTION CONF_DAY_PARTICIPANTS_COUNT(
+  i_conf_day_id IN CONFERENCE_DAYS.CONF_DAY_ID%TYPE,
+  i_booking_id IN BOOKINGS.BOOKING_ID%TYPE,
+  -- Count only students vs count only normal attendees.
+  i_student IN PARTICIPATION_CONF_DAYS.IS_STUDENT%TYPE
+) RETURN INTEGER AS
+  l_participants_count INTEGER;
+BEGIN
+  BEGIN
+    SELECT COUNT(*) INTO l_participants_count
+    FROM PARTICIPATION_CONF_DAYS PCD
+    WHERE PCD.BOOKING_ID = i_booking_id
+          AND PCD.CONF_DAY_ID = i_conf_day_id
+          AND PCD.IS_STUDENT = i_student;
+  END;
+
+  RETURN l_participants_count;
+END;
 
 
+CREATE OR REPLACE FUNCTION WORKSHOP_PARTICIPANTS_COUNT(
+  i_workshop_id IN WORKSHOPS.WORKSHOP_ID%TYPE,
+  i_booking_id IN BOOKINGS.BOOKING_ID%TYPE,
+  -- Count only students vs count only normal attendees.
+  i_student IN PARTICIPATION_CONF_DAYS.IS_STUDENT%TYPE
+) RETURN INTEGER AS
+  l_participants_count INTEGER;
+BEGIN
+  BEGIN
+    SELECT COUNT(*) INTO l_participants_count
+    FROM PARTICIPATION_CONF_DAYS PCD
+      JOIN PARTICIPATION_WORKSHOPS PW ON
+        PCD.PARTICIPATION_CONF_DAY_ID = PW.PARTICIPATION_CONF_DAY_ID
+    WHERE PCD.BOOKING_ID = i_booking_id
+          AND PW.WORKSHOP_ID = i_workshop_id
+          AND PCD.IS_STUDENT = i_student;
+  END;
 
+  RETURN l_participants_count;
+END;
+
+
+CREATE OR REPLACE FUNCTION CONFERENCE_PLACES_BOOKED_AVG(
+  i_client_id IN CLIENTS.CLIENT_ID%TYPE
+) RETURN INTEGER AS
+  l_places_avg NUMBER;
+BEGIN
+  BEGIN
+    SELECT AVG(PLACES_BOOKED) INTO l_places_avg
+    FROM (SELECT SUM(NUMBER_OF_ATTENDEES) AS PLACES_BOOKED
+          FROM BOOKINGS B
+            JOIN CONF_DAY_BOOKINGS CDB ON B.BOOKING_ID = CDB.BOOKING_ID
+                                          AND CDB.IS_CANCELLED = 'N'
+          WHERE B.CLIENT_ID = i_client_id
+          GROUP BY B.BOOKING_ID);
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20505, 'Incorrect client_id!');
+  END;
+
+  RETURN ROUND(l_places_avg);
+END;
+
+
+CREATE OR REPLACE FUNCTION WORKSHOP_PLACES_BOOKED_AVG(
+  i_client_id IN CLIENTS.CLIENT_ID%TYPE
+) RETURN INTEGER AS
+  l_places_avg NUMBER;
+BEGIN
+  BEGIN
+    SELECT AVG(PLACES_BOOKED) INTO l_places_avg
+    FROM (SELECT SUM(WB.NUMBER_OF_ATTENDEES) AS PLACES_BOOKED
+          FROM BOOKINGS B
+            JOIN CONF_DAY_BOOKINGS CDB ON B.BOOKING_ID = CDB.BOOKING_ID
+            JOIN WORKSHOP_BOOKINGS WB ON CDB.CONF_DAY_BOOKING_ID = WB.CONF_DAY_BOOKING_ID
+                                         AND WB.IS_CANCELLED = 'N'
+          WHERE B.CLIENT_ID = i_client_id
+          GROUP BY B.BOOKING_ID);
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20505, 'Incorrect client_id!');
+  END;
+
+  RETURN ROUND(l_places_avg);
+END;
 -- CREATE OR REPLACE PACKAGE ...? AS ...!
 -- TODO: PROCEDURE_NAME_P??

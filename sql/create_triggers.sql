@@ -376,5 +376,9 @@ BEGIN
   END IF;
 END;
 
+
+
 -- TODO: add trigger for: if conf_day_booking removed or cancelled - remove all corresponding participation
--- (and same for workshops).
+-- (and same for workshops). DONE - in procedure.
+-- TODO: add trigger for: check if participation is for workshops on the same day as participation in conference day!
+-- DONE - it is done by insertion method actually... that OK?
