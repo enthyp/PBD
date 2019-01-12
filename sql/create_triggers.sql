@@ -56,36 +56,22 @@ CREATE OR REPLACE TRIGGER PRICE_VALID_DATE_TRG
 DECLARE
   l_thresh_end_date PRICES.END_DATE%TYPE;
   l_conf_start_date CONFERENCES.FIRST_DAY%TYPE;
-  l_dupl_no NUMBER;
 BEGIN
-  -- Check if added threshold is not duplicate.
-  l_thresh_end_date := :new.END_DATE;
+  -- Check if threshold ends before the start of the conference.
   BEGIN
-    SELECT COUNT(*) INTO l_dupl_no
-    FROM PRICES
-    WHERE PRICES.CONFERENCE_ID = :new.CONFERENCE_ID
-          AND PRICES.END_DATE = l_thresh_end_date;
+    SELECT FIRST_DAY INTO l_conf_start_date
+    FROM CONFERENCES
+    WHERE CONFERENCES.CONFERENCE_ID = :new.CONFERENCE_ID;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      l_conf_start_date := NULL;
   END;
 
-  IF (l_dupl_no > 0) THEN
-    RAISE_APPLICATION_ERROR(-20002, 'Price threshold with such date already exists!');
-  ELSE
-    -- Check if threshold ends before the start of the conference.
-    BEGIN
-      SELECT FIRST_DAY INTO l_conf_start_date
-      FROM CONFERENCES
-      WHERE CONFERENCES.CONFERENCE_ID = :new.CONFERENCE_ID;
-    EXCEPTION
-      WHEN NO_DATA_FOUND THEN
-        l_conf_start_date := NULL;
-    END;
-
-    IF (l_thresh_end_date > l_conf_start_date) THEN
-      RAISE_APPLICATION_ERROR(-20003, 'Price threshold cannot span after the start of the conference!');
-    END IF;
+  IF (l_thresh_end_date > l_conf_start_date) THEN
+    RAISE_APPLICATION_ERROR(-20002, 'Price threshold cannot span after the start of the conference!');
   END IF;
 END;
-
+--!
 
 CREATE OR REPLACE TRIGGER PAYMENT_AFTER_BOOKING_TRG
   BEFORE INSERT OR UPDATE OF PAYMENT_DATE ON PAYMENTS
@@ -104,28 +90,6 @@ BEGIN
 
   IF (:new.PAYMENT_DATE < l_booking_date) THEN
     RAISE_APPLICATION_ERROR(-20004, 'Booking date must precede payment date!');
-  END IF;
-END;
-
-
-CREATE OR REPLACE TRIGGER NO_CONF_DAY_DUPLICATES_TRG
-  BEFORE INSERT OR UPDATE OF DAY_DATE ON CONFERENCE_DAYS
-  FOR EACH ROW
-DECLARE
-  l_date_count INTEGER;
-BEGIN
-  BEGIN
-    SELECT COUNT(*) INTO l_date_count
-    FROM CONFERENCE_DAYS CD
-    WHERE CD.DAY_DATE = :new.DAY_DATE
-          AND CD.CONFERENCE_ID = :new.CONFERENCE_ID;
-  EXCEPTION
-    WHEN NO_DATA_FOUND THEN
-      l_date_count := NULL;
-  END;
-
-  IF (l_date_count > 0) THEN
-    RAISE_APPLICATION_ERROR(-20005, 'Conference day entry for this date is already present!');
   END IF;
 END;
 
@@ -293,3 +257,124 @@ BEGIN
     RAISE_APPLICATION_ERROR(-20014, 'Cannot delete already booked workshop!');
   END IF;
 END;
+
+
+CREATE OR REPLACE TRIGGER BOOKING_ADD_CHECK_DUPLICATES_TRG
+  BEFORE INSERT OR UPDATE ON BOOKINGS
+  FOR EACH ROW
+DECLARE
+  l_booking_count INTEGER;
+BEGIN
+  IF :new.IS_CANCELLED = 'N' THEN
+    BEGIN
+      SELECT COUNT(*) INTO l_booking_count
+      FROM BOOKINGS
+      WHERE BOOKINGS.BOOKING_ID <> :new.BOOKING_ID
+            AND BOOKINGS.CLIENT_ID = :new.CLIENT_ID
+            AND BOOKINGS.CONFERENCE_ID = :new.CONFERENCE_ID
+            AND BOOKINGS.IS_CANCELLED = 'N';
+    END;
+
+    IF (l_booking_count > 0) THEN
+      RAISE_APPLICATION_ERROR(-20015, 'Uncancelled identical booking already present!');
+    END IF;
+  END IF;
+END;
+
+
+CREATE OR REPLACE TRIGGER BOOKING_BEFORE_CONFERENCE_TRG
+  BEFORE INSERT OR UPDATE ON BOOKINGS
+  FOR EACH ROW
+DECLARE
+  l_conf_start_date CONFERENCES.FIRST_DAY%TYPE;
+BEGIN
+  BEGIN
+    SELECT FIRST_DAY INTO l_conf_start_date
+    FROM CONFERENCES
+    WHERE CONFERENCES.CONFERENCE_ID = :new.CONFERENCE_ID;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      l_conf_start_date := NULL;
+  END;
+
+  IF (:new.BOOKING_DATE >= l_conf_start_date) THEN
+    RAISE_APPLICATION_ERROR(-20016, 'Cannot add booking after the conference has started!');
+  END IF;
+END;
+
+
+CREATE OR REPLACE TRIGGER CONF_DAY_BOOKING_ADD_CHECK_DUPLICATES_TRG
+  BEFORE INSERT OR UPDATE ON CONF_DAY_BOOKINGS
+  FOR EACH ROW
+DECLARE
+  l_conf_day_booking_count INTEGER;
+BEGIN
+  IF :new.IS_CANCELLED = 'N' THEN
+    BEGIN
+      SELECT COUNT(*) INTO l_conf_day_booking_count
+      FROM CONF_DAY_BOOKINGS
+      WHERE CONF_DAY_BOOKINGS.CONF_DAY_BOOKING_ID <> :new.CONF_DAY_BOOKING_ID
+            AND CONF_DAY_BOOKINGS.CONF_DAY_ID = :new.CONF_DAY_ID
+            AND CONF_DAY_BOOKINGS.IS_CANCELLED = 'N';
+    END;
+
+    IF (l_conf_day_booking_count > 0) THEN
+      RAISE_APPLICATION_ERROR(-20016, 'Non-cancelled identical conference day booking already present!');
+    END IF;
+  END IF;
+END;
+
+
+CREATE OR REPLACE TRIGGER CONF_DAY_PARTICIPATION_STUDENT_CARD_TRG
+  BEFORE INSERT OR UPDATE ON PARTICIPATION_CONF_DAYS
+  FOR EACH ROW
+DECLARE
+  l_is_student BOOLEAN;
+BEGIN
+  BEGIN
+    SELECT (STUDENT_CARD IS NOT NULL) INTO l_is_student
+    FROM ATTENDEES
+    WHERE ATTENDEES.ATTENDEE_ID = :new.ATTENDEE_ID;
+  END;
+
+  IF (:new.IS_STUDENT AND NOT l_is_student) THEN
+    RAISE_APPLICATION_ERROR(-20017, 'Corresponding attendee does not have valid student card number!');
+  END IF;
+END;
+
+
+CREATE OR REPLACE TRIGGER WORKSHOP_BOOKING_ADD_CHECK_DUPLICATES_TRG
+  BEFORE INSERT OR UPDATE ON WORKSHOP_BOOKINGS
+  FOR EACH ROW
+DECLARE
+  l_workshop_booking_count INTEGER;
+BEGIN
+  IF :new.IS_CANCELLED = 'N' THEN
+    BEGIN
+      SELECT COUNT(*) INTO l_workshop_booking_count
+      FROM WORKSHOP_BOOKINGS
+      WHERE WORKSHOP_BOOKINGS.WORKSHOP_BOOKING_ID <> :new.WORKSHOP_BOOKING_ID
+            AND WORKSHOP_BOOKINGS.WORKSHOP_ID = :new.WORKSHOP_ID
+            AND WORKSHOP_BOOKINGS.IS_CANCELLED = 'N';
+    END;
+
+    IF (l_workshop_booking_count > 0) THEN
+      RAISE_APPLICATION_ERROR(-20017, 'Non-cancelled identical workshop booking already present!');
+    END IF;
+  END IF;
+END;
+
+
+CREATE OR REPLACE TRIGGER PAYMENT_BOOKING_VALUE_MATCH_TRG
+  BEFORE INSERT OR UPDATE ON PAYMENTS
+  FOR EACH ROW
+DECLARE
+  l_target_value NUMBER := BOOKING_VALUE(:new.BOOKING_ID);
+BEGIN
+  IF (:new.VALUE <> l_target_value) THEN
+    RAISE_APPLICATION_ERROR(-20018, 'Payment value does not match booking value!');
+  END IF;
+END;
+
+-- TODO: add trigger for: if conf_day_booking removed or cancelled - remove all corresponding participation
+-- (and same for workshops).
