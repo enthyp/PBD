@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
 import remote_db_config as conf
 import cx_Oracle
 from sshtunnel import SSHTunnelForwarder
-from pprint import pprint
+#from pprint import pprint
+
+from generate import delete_all_content
 
 with SSHTunnelForwarder((conf.tunnel_host, conf.tunnel_port), 
                          ssh_username=conf.ssh_user, 
@@ -11,22 +12,20 @@ with SSHTunnelForwarder((conf.tunnel_host, conf.tunnel_port),
     port = tunnel.local_bind_port
     
     try:
-        db = cx_Oracle.connect(conf.db_user, conf.db_password, 
-            f'localhost:{port}/{conf.db_sid}')
-        cursor = db.cursor()
+        conn = cx_Oracle.connect(conf.db_user, conf.db_password, 'localhost:%d/%s' % (port, conf.db_sid))
+        cursor = conn.cursor()
         
         try:
-            cursor.execute('INSERT INTO ATTENDEES (FIRST_NAME, LAST_NAME, EMAIL) ' + 
-                "VALUES ('John', 'Doe', 'johnny@buziaczek.com')")
-            db.commit()            
-            cursor.execute('SELECT * FROM ATTENDEES')
-            pprint(cursor.fetchall())
+            delete_all_content(conn, cursor)
+            # cursor.execute('INSERT INTO ATTENDEES (FIRST_NAME, LAST_NAME, EMAIL) ' +
+            #     "VALUES ('Joe', 'Doe', 'joe@buziaczek.com')")
+            # conn.commit()
+            #cursor.execute('SELECT * FROM ATTENDEES')
+            #pprint(cursor.fetchall())
         except cx_Oracle.DatabaseError as e:
-            print(f'Database error upon execution: {e}')
+            print('Database error upon execution: ' + str(e))
         finally:
             cursor.close()
-            db.close()
+            conn.close()
     except cx_Oracle.DatabaseError as e:
-        print(f'Database connection error: {e}')
-
-
+        print('Database connection error: ' + str(e))
