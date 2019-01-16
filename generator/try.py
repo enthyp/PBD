@@ -33,12 +33,20 @@ with SSHTunnelForwarder((conf.tunnel_host, conf.tunnel_port),
 
             private_clients = generator.create_private_clients()
             company_clients = generator.create_company_clients()
-            generator.insert_clients(private_clients + company_clients)
+            clients = private_clients + company_clients
+            generator.insert_clients(clients)
 
             attendees = generator.create_attendees()
             generator.insert_attendees(attendees)
 
-            cursor.execute("SELECT * FROM ATTENDEES")
+            bookings = generator.create_bookings(conferences)
+            conf_day_bookings = generator.create_conf_day_bookings(bookings, conf_days)
+            bookings = generator.remove_empty_bookings(bookings, conf_day_bookings)
+
+            generator.insert_bookings(bookings)
+            generator.insert_conf_day_bookings(conf_day_bookings)
+
+            cursor.execute("SELECT * FROM CONF_DAY_BOOKINGS")
             pprint(cursor.fetchmany(10))
         except cx_Oracle.DatabaseError as e:
             print('Database error upon execution: ' + str(e))

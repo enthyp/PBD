@@ -1,7 +1,7 @@
 import datetime as dt
 import string
 from random import randint
-from random import choices
+from random import choice, choices
 from faker import Faker
 from pprint import pprint
 
@@ -83,7 +83,7 @@ class Generator:
 
             for _ in range(no_workshops):
                 price = randint(0, 1)
-                if price == 0:
+                if price == 1:
                     price = randint(100, 10000) / 100.0
                 start_time = dt.datetime.combine(cd[4], dt.time(randint(8, 18), randint(0, 5)*10))
                 duration = dt.timedelta(minutes=randint(3, 10)*10)
@@ -130,7 +130,7 @@ class Generator:
     def create_private_clients(self):
         clients = []
 
-        for i in range(100):
+        for i in range(200):
             clients.append((i + 1000,
                             'N',
                             self._fake.first_name() + " " + self._fake.last_name(),
@@ -169,7 +169,7 @@ class Generator:
         attendees = []
 
         for i in range(2000):
-            is_student = True if randint(1, 10) < 3 else False
+            is_student = choice([True, False])
             email = self._fake.email()
             login, domain = email.split('@')
             email = "{}{}@{}".format(login, i, domain)
@@ -186,6 +186,86 @@ class Generator:
         self._cursor.executemany("INSERT INTO ATTENDEES"
                                  "(ATTENDEE_ID, FIRST_NAME, LAST_NAME, STUDENT_CARD, EMAIL, PHONE) "
                                  "VALUES(:1, :2, :3, :4, :5, :6)", attendees)
+        self._conn.commit()
+
+    @staticmethod
+    def create_bookings(conferences):
+        bookings = []
+
+        i = 0
+        for c in conferences:
+            no_bookings = randint(80, 120)
+            for _ in range(no_bookings):
+                is_private = choice([True, False])
+                bookings.append((i,
+                                 randint(0, 199) + 1000 if is_private else randint(0, 99),
+                                 c[0],
+                                 'N', # for the sake of easy generation
+                                 c[5] - dt.timedelta(randint(10, 30))))
+                i += 1
+
+        return bookings
+
+    def insert_bookings(self, bookings):
+        self._cursor.executemany("INSERT INTO BOOKINGS"
+                                 "(BOOKING_ID, CLIENT_ID, CONFERENCE_ID, IS_CANCELLED, BOOKING_DATE) "
+                                 "VALUES(:1, :2, :3, :4, :5)", bookings)
+        self._conn.commit()
+
+    @staticmethod
+    def create_conf_day_bookings(bookings, conf_days):
+        conf_day_bookings = []
+        conf_day_limits = {cd[0]: cd[3] for cd in conf_days}
+
+        i = 0
+        for b in bookings:
+            conf_id = b[2]
+            booking_conf_days = [cd for cd in conf_days if cd[1] == conf_id]
+
+            for cd in booking_conf_days:
+                conf_day_id = cd[0]
+                no_attendees = randint(0, min(5, conf_day_limits[conf_day_id]))
+                if no_attendees > 0:
+                    no_students = randint(0, no_attendees)
+                    booking_id = b[0]
+                    conf_day_bookings.append((i,
+                                              booking_id,
+                                              conf_day_id,
+                                              no_students,
+                                              no_attendees,
+                                              'N'))
+                    i += 1
+        return conf_day_bookings
+
+    @staticmethod
+    def remove_empty_bookings(bookings, conf_day_bookings):
+        empty = []
+        for b in bookings:
+            is_empty = len([cdb for cdb in conf_day_bookings if cdb[1] == b[0]]) == 0
+            if is_empty:
+                empty.append(b)
+        return [b for b in bookings if b not in empty]
+
+    def insert_conf_day_bookings(self, conf_day_bookings):
+        self._cursor.executemany("INSERT INTO CONF_DAY_BOOKINGS"
+                                 "(CONF_DAY_BOOKING_ID, BOOKING_ID, CONF_DAY_ID, NUMBER_OF_STUDENTS, "
+                                 "NUMBER_OF_ATTENDEES, IS_CANCELLED) "
+                                 "VALUES(:1, :2, :3, :4, :5, :6)", conf_day_bookings)
+        self._conn.commit()
+
+    @staticmethod
+    def create_workshop_bookings(conf_day_bookings, workshops):
+        workshop_bookings = []
+
+        return workshop_bookings
+
+    def insert_workshop_bookings(self, workshop_bookings):
+        self._cursor.executemany("INSERT INTO WORKSHOP_BOOKINGS"
+                                 "(WORKSHOP_BOOKING_ID, CONF_DAY_BOOKING_ID, WORKSHOP_ID, NUMBER_OF_STUDENTS, "
+                                 "NUMBER_OF_ATTENDEES, IS_CANCELLED) "
+                                 "VALUES(:1, :2, :3, :4, :5, :6)", workshop_bookings)
+        self._conn.commit()
+
 
 # Conferences first, independent of all.
 # Add conference days to each, then workshops to some of conference days.
