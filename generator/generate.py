@@ -1,9 +1,9 @@
 import datetime as dt
 import string
 from random import randint
-from random import choice, choices
+from random import choice, choices, sample
 from faker import Faker
-from pprint import pprint
+import cx_Oracle
 
 class Generator:
     def __init__(self, conn, cursor):
@@ -12,6 +12,11 @@ class Generator:
         self._fake = Faker()
         self._fake.seed(1234)
 
+    def _fake_email(self, salt: str):
+        email = self._fake.email()
+        login, domain = email.split('@')
+        email = "{}{}@{}".format(login, salt, domain)
+        return email[:255]
 
     def delete_all_content(self):
         self._cursor.execute("DELETE FROM PARTICIPATION_WORKSHOPS")
@@ -138,7 +143,7 @@ class Generator:
                             self._fake.city()[:50],
                             self._fake.street_address()[:100],
                             ''.join(choices(string.digits, k=9)),
-                            self._fake.email()[:255],
+                            self._fake_email(str(i)),
                             ''.join(choices(string.ascii_letters + string.digits, k=randint(16, 100)))
                             ))
         return clients
@@ -154,7 +159,7 @@ class Generator:
                             self._fake.city()[:50],
                             self._fake.street_address()[:100],
                             ''.join(choices(string.digits, k=9)),
-                            self._fake.email()[:255],
+                            self._fake_email(str(i)),
                             ''.join(choices(string.ascii_letters + string.digits, k=randint(16, 100)))
                             ))
         return clients
@@ -170,14 +175,11 @@ class Generator:
 
         for i in range(2000):
             is_student = choice([True, False])
-            email = self._fake.email()
-            login, domain = email.split('@')
-            email = "{}{}@{}".format(login, i, domain)
             attendees.append((i,
                               self._fake.first_name(),
                               self._fake.last_name(),
                               ''.join(choices(string.digits, k=10)) if is_student else None,
-                              email,
+                              self._fake_email(str(i)),
                               ''.join(choices(string.digits, k=9))
                               ))
         return attendees
@@ -220,14 +222,15 @@ class Generator:
         i = 0
         for b in bookings:
             conf_id = b[2]
-            booking_conf_days = [cd for cd in conf_days if cd[1] == conf_id]
+            conf_days_for_booking = [cd for cd in conf_days if cd[1] == conf_id]
 
-            for cd in booking_conf_days:
+            for cd in conf_days_for_booking:
                 conf_day_id = cd[0]
-                no_attendees = randint(0, min(5, conf_day_limits[conf_day_id]))
+                no_attendees = randint(0, min(10, conf_day_limits[conf_day_id]))
                 if no_attendees > 0:
                     no_students = randint(0, no_attendees)
                     booking_id = b[0]
+                    conf_day_limits[conf_day_id] -= no_attendees
                     conf_day_bookings.append((i,
                                               booking_id,
                                               conf_day_id,
@@ -239,11 +242,11 @@ class Generator:
 
     @staticmethod
     def remove_empty_bookings(bookings, conf_day_bookings):
-        empty = []
+        empty = set()
         for b in bookings:
             is_empty = len([cdb for cdb in conf_day_bookings if cdb[1] == b[0]]) == 0
             if is_empty:
-                empty.append(b)
+                empty.add(b)
         return [b for b in bookings if b not in empty]
 
     def insert_conf_day_bookings(self, conf_day_bookings):
@@ -256,6 +259,27 @@ class Generator:
     @staticmethod
     def create_workshop_bookings(conf_day_bookings, workshops):
         workshop_bookings = []
+        workshop_limits = {w[0]: w[6] for w in workshops}
+
+        i = 0
+        for cdb in conf_day_bookings:
+            conf_day_id, students_max, attendees_max = cdb[2:5]
+            conf_day_workshops = [w for w in workshops if w[1] == conf_day_id]
+            for w in conf_day_workshops:
+                workshop_id = w[0]
+                no_attendees = randint(0, min(5, workshop_limits[workshop_id], attendees_max))
+                if no_attendees > 0:
+                    conf_day_booking_id = cdb[0]
+                    no_students = randint(max((no_attendees - (attendees_max - students_max)), 0),
+                                          min(students_max, no_attendees)) # CAREFUL!
+                    workshop_limits[workshop_id] -= no_attendees
+                    workshop_bookings.append((i,
+                                              conf_day_booking_id,
+                                              workshop_id,
+                                              no_students,
+                                              no_attendees,
+                                              'N'))
+                    i += 1
 
         return workshop_bookings
 
@@ -266,13 +290,84 @@ class Generator:
                                  "VALUES(:1, :2, :3, :4, :5, :6)", workshop_bookings)
         self._conn.commit()
 
+    @staticmethod
+    def create_conf_day_participation(conf_day_bookings, attendees):
+        conf_day_participation = []
+        students = [a for a in attendees if a[3] is not None]
+        adults = [a for a in attendees if a[3] is None]
 
-# Conferences first, independent of all.
-# Add conference days to each, then workshops to some of conference days.
-# Add price thresholds.
-# Clients next, institutional and personal separately. For personal create appropriate attendees.
-# Create a bunch of attendees.
-# Create bookings of clients for different conferences.
-# For each booking add some conference day bookings and workshop bookings - distinguish institutional and personal -
-    # - a person can only reserve one place and must give attendee data immediately.
-# Finally for all the bookings add participation. Maybe map groups of attendees to conference bookings? Guess not...
+        i = 0
+        for cdb in conf_day_bookings:
+            booking_id, conf_day_id, no_students, no_attendees = cdb[1:5]
+            student_participants = sample(students, no_students)
+            adult_participants = sample(adults, no_attendees - no_students)
+
+            for j in range(no_students):
+                conf_day_participation.append((i,
+                                               conf_day_id,
+                                               student_participants[j][0],
+                                               booking_id,
+                                               'Y'))
+                i += 1
+
+            for j in range(no_attendees - no_students):
+                conf_day_participation.append((i,
+                                               conf_day_id,
+                                               adult_participants[j][0],
+                                               booking_id,
+                                               'N'))
+                i += 1
+
+        return conf_day_participation
+
+    def insert_conf_day_participation(self, conf_day_participation):
+        self._cursor.executemany("INSERT INTO PARTICIPATION_CONF_DAYS"
+                                 "(PARTICIPATION_CONF_DAY_ID, CONF_DAY_ID, ATTENDEE_ID, "
+                                 "BOOKING_ID, IS_STUDENT) "
+                                 "VALUES(:1, :2, :3, :4, :5)", conf_day_participation)
+        self._conn.commit()
+
+    def create_workshop_participation(self, workshop_bookings):
+        workshop_participation = []
+
+        # Prepare two maps: from workshop booking IDs to potential student and adult participants, respectively.
+        self._cursor.execute("SELECT WB.WORKSHOP_BOOKING_ID, PCD.PARTICIPATION_CONF_DAY_ID, PCD.IS_STUDENT "
+                             "FROM PARTICIPATION_CONF_DAYS PCD "
+                             "JOIN CONF_DAY_BOOKINGS CDB ON CDB.BOOKING_ID = PCD.BOOKING_ID "
+                             "AND CDB.CONF_DAY_ID = PCD.CONF_DAY_ID "
+                             "JOIN WORKSHOP_BOOKINGS WB ON WB.CONF_DAY_BOOKING_ID = CDB.CONF_DAY_BOOKING_ID")
+        workshop_potential_participants = self._cursor.fetchall()
+
+        student_pp = [t for t in workshop_potential_participants if t[2] == 'Y']
+        adult_pp = [t for t in workshop_potential_participants if t[2] == 'N']
+
+        student_participation = {t[0]: [] for t in workshop_potential_participants}
+        adult_participation = {t[0]: [] for t in workshop_potential_participants}
+
+        for spp in student_pp:
+            student_participation[spp[0]].append(spp[1])
+
+        for app in adult_pp:
+            adult_participation[app[0]].append(app[1])
+
+        i = 0
+        for wb in workshop_bookings:
+            workshop_booking_id, conf_day_booking_id, workshop_id, no_students, no_attendees = wb[:5]
+            student_participants = sample(student_participation[workshop_booking_id], no_students)
+            adult_participants = sample(adult_participation[workshop_booking_id], no_attendees - no_students)
+
+            for j in range(no_students):
+                workshop_participation.append((i, workshop_id, student_participants[j]))
+                i += 1
+
+            for j in range(no_attendees - no_students):
+                workshop_participation.append((i, workshop_id, adult_participants[j]))
+                i += 1
+
+        return workshop_participation
+
+    def insert_workshop_participation(self, workshop_participation):
+        self._cursor.executemany("INSERT IGNORE INTO PARTICIPATION_WORKSHOPS"
+                                 "(PARTICIPATION_WORKSHOP_ID, WORKSHOP_ID, PARTICIPATION_CONF_DAY_ID) "
+                                 "VALUES(:1, :2, :3)", workshop_participation)
+        self._conn.commit() # TODO: overlap?
