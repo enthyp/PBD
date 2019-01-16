@@ -58,6 +58,16 @@ with SSHTunnelForwarder((conf.tunnel_host, conf.tunnel_port),
             generator.insert_workshop_bookings(workshop_bookings)
             print("{} workshop bookings inserted...".format(len(workshop_bookings)))
 
+            conf_day_participation = generator.create_conf_day_participation(conf_day_bookings, attendees)
+            generator.insert_conf_day_participation(conf_day_participation)
+            print("{} conference day participation relations inserted...".format(len(conf_day_participation)))
+
+            workshop_participation = generator.create_workshop_participation(workshop_bookings)
+            generator.insert_workshop_participation(workshop_participation)
+            print("{} workshop participation relations inserted...".format(len(workshop_participation)))
+
+            print("All data inserted.")
+
             cursor.execute("SELECT * FROM WORKSHOP_BOOKINGS")
             pprint(cursor.fetchmany(10))
         except cx_Oracle.DatabaseError as e:

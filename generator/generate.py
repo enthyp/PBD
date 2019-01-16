@@ -367,7 +367,7 @@ class Generator:
         return workshop_participation
 
     def insert_workshop_participation(self, workshop_participation):
-        self._cursor.executemany("INSERT IGNORE INTO PARTICIPATION_WORKSHOPS"
+        self._cursor.executemany("INSERT INTO PARTICIPATION_WORKSHOPS"
                                  "(PARTICIPATION_WORKSHOP_ID, WORKSHOP_ID, PARTICIPATION_CONF_DAY_ID) "
                                  "VALUES(:1, :2, :3)", workshop_participation)
-        self._conn.commit() # TODO: overlap?
+        self._conn.commit() 
